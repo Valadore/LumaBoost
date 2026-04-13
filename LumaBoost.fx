@@ -39,11 +39,11 @@ uniform float Boost <
 
 uniform float Boost_Ramp <
     ui_type = "slider";
-    ui_min = 1.0; ui_max = 20.0;
+    ui_min = 1.0; ui_max = 10.0;
     ui_category = "1. Main Boost Settings";
     ui_label = "Boost Activation Sensitivity";
     ui_tooltip = "Controls how aggressively the boost reaches full power after passing the threshold. Higher is more instant.";
-> = 10.0;
+> = 5.0;
 
 uniform float Smoothing_Speed <
     ui_type = "slider";
