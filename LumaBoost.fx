@@ -18,24 +18,27 @@
 #include "ReShade.fxh"
 
 // =============================================================================
-// SYSTEM INFO
+// 1. SYSTEM DETECTION & CONSTANTS
 // =============================================================================
 
-#if BUFFER_COLOR_SPACE == 3
+#if BUFFER_COLOR_SPACE == 3 // HDR10 PQ
     #define CS_NAME "HDR10 (PQ)"
-#elif BUFFER_COLOR_SPACE == 2
+    #define LUMA_COEFF float3(0.2627, 0.6780, 0.0593)
+#elif BUFFER_COLOR_SPACE == 2 // scRGB Linear
     #define CS_NAME "scRGB (Linear)"
-#else
+    #define LUMA_COEFF float3(0.2627, 0.6780, 0.0593)
+#else // SDR sRGB
     #define CS_NAME "SDR (sRGB)"
+    #define LUMA_COEFF float3(0.2126, 0.7152, 0.0722)
 #endif
 
 // =============================================================================
-// UI CONTROLS
+// 2. UI CONTROLS
 // =============================================================================
 
 uniform int Info <
     ui_type = "radio"; ui_label = " "; ui_category = "0. System Info";
-    ui_text = "Detected Buffer Format: " CS_NAME;
+    ui_text = "Detected Format: " CS_NAME;
 >;
 
 uniform float APL_Threshold <
@@ -48,7 +51,7 @@ uniform float Boost <
     ui_type = "slider"; ui_min = 0.0; ui_max = 2.0;
     ui_category = "1. Main Boost Settings";
     ui_label = "Max Boost Strength";
-> = 0.5;
+> = 1.0;
 
 uniform float Boost_Ramp <
     ui_type = "slider"; ui_min = 1.0; ui_max = 20.0;
@@ -63,17 +66,13 @@ uniform float Smoothing_Speed <
 > = 0.90;
 
 uniform float Shadow_Protect <
-    ui_type = "slider"; ui_min = 1.0; ui_max = 10.0;
+    ui_type = "slider"; ui_min = 0.1; ui_max = 2.0;
     ui_category = "1. Main Boost Settings";
     ui_label = "Shadow Protect";
 > = 1.0;
 
 uniform bool Enable_Sat_Recover < ui_category = "2. Color Correction"; ui_label = "Enable Saturation Recovery"; > = true;
-uniform float Sat_Recover < 
-    ui_type = "slider"; ui_min = 0.0; ui_max = 2.0; 
-    ui_category = "2. Color Correction"; ui_label = "Saturation Recovery Amount"; 
-    ui_tooltip = "Fights 'washout'. Higher values make colors more vivid as brightness increases.";
-> = 0.15;
+uniform float Sat_Recover < ui_type = "slider"; ui_min = 0.0; ui_max = 1.0; ui_category = "2. Color Correction"; ui_label = "Saturation Recovery Amount"; > = 0.15;
 
 uniform bool Enable_Skin_Protect < ui_category = "3. Skin Protection"; ui_label = "Enable Skin Protection"; > = true;
 uniform float Skin_Protect_Strength < ui_type = "slider"; ui_min = 0.0; ui_max = 1.0; ui_category = "3. Skin Protection"; ui_label = "Protection Strength"; > = 0.50;
@@ -84,48 +83,51 @@ uniform bool Debug_Skin < ui_category = "4. Debug Tools"; ui_label = "DEBUG: Sho
 uniform bool Show_Debug < ui_category = "4. Debug Tools"; ui_label = "Show Visual Stats"; > = false;
 
 // =============================================================================
-// COLOR SCIENCE
+// 3. TEXTURES & SAMPLERS
+// =============================================================================
+
+texture texStats { Width = 32; Height = 32; Format = RGBA16F; };
+sampler sStats { Texture = texStats; };
+texture texStatsPrev { Width = 1; Height = 1; Format = RGBA16F; };
+sampler sStatsPrev { Texture = texStatsPrev; };
+texture texStatsCurr { Width = 1; Height = 1; Format = RGBA16F; };
+sampler sStatsCurr { Texture = texStatsCurr; };
+
+// =============================================================================
+// 4. COLOR SCIENCE UTILITIES
 // =============================================================================
 
 float3 Decode(float3 c) {
-#if BUFFER_COLOR_SPACE == 3 
-    const float m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
-    float3 cp = pow(max(c, 0.0), 1.0 / m2);
-    return pow(max(cp - c1, 0.0) / (c2 - c3 * cp), 1.0 / m1);
-#elif BUFFER_COLOR_SPACE == 2 
+#if BUFFER_COLOR_SPACE == 3 // PQ
+    float3 cp = pow(max(c, 0.0), 0.012683);
+    return pow(max(cp - 0.8359375, 0.0) / (18.85156 - 18.6875 * cp), 6.27739);
+#elif BUFFER_COLOR_SPACE == 2 // scRGB
     return c / 125.0; 
-#else 
+#else // SDR
     return pow(max(c, 0.0), 2.2);
 #endif
 }
 
 float3 Encode(float3 c) {
-#if BUFFER_COLOR_SPACE == 3 
-    const float m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
-    float3 cp = pow(max(c, 0.0), m1);
-    return pow((c1 + c2 * cp) / (1.0 + c3 * cp), m2);
-#elif BUFFER_COLOR_SPACE == 2 
+#if BUFFER_COLOR_SPACE == 3 // PQ
+    float3 cp = pow(max(c, 0.0), 0.159301);
+    return pow((0.8359375 + 18.85156 * cp) / (1.0 + 18.6875 * cp), 78.84375);
+#elif BUFFER_COLOR_SPACE == 2 // scRGB
     return c * 125.0;
-#else 
-    return pow(max(c, 0.0), 1.0 / 2.2);
+#else // SDR
+    return pow(max(c, 0.0), 0.454545);
 #endif
 }
 
 // =============================================================================
-// STATS HANDLING
+// 5. PROCESSING PASSES
 // =============================================================================
 
-texture texStats { Width = 32; Height = 32; Format = RGBA16F; };
-sampler samplerStats { Texture = texStats; };
-texture texStatsPrev { Width = 1; Height = 1; Format = RGBA16F; };
-sampler samplerStatsPrev { Texture = texStatsPrev; };
-texture texStatsCurr { Width = 1; Height = 1; Format = RGBA16F; };
-sampler samplerStatsCurr { Texture = texStatsCurr; };
-
+// Pass 1: Local Grid Stats
 float4 PS_CalcStats(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target {
-    float avg = 0; float mx = 0;
-    for(int i=0; i<4; i++) for(int j=0; j<4; j++) {
-        float3 c = tex2D(ReShade::BackBuffer, uv + (float2(i,j)/4.0-0.5)*(1.0/32.0)).rgb;
+    float avg = 0, mx = 0;
+    [unroll] for(int i=0; i<4; i++) [unroll] for(int j=0; j<4; j++) {
+        float3 c = tex2D(ReShade::BackBuffer, uv + (float2(i,j)/4.0-0.5)*float2(1.0/32.0, 1.0/32.0)).rgb;
         #if BUFFER_COLOR_SPACE == 2 
             c = saturate(c / 125.0);
         #endif
@@ -135,70 +137,59 @@ float4 PS_CalcStats(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target 
     return float4(avg/16.0, mx, 0, 1);
 }
 
+// Pass 2: Global Stats & Temporal Smoothing
 float4 PS_SmoothStats(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target {
-    float avg = 0; float mx = 0;
+    float avg = 0, mx = 0;
     for(int i=0; i<32; i++) for(int j=0; j<32; j++) {
-        float2 stats = tex2D(samplerStats, float2(i, j) / 32.0).xy;
-        avg += stats.x; mx = max(mx, stats.y);
+        float2 s = tex2D(sStats, float2(i, j) / 32.0).xy;
+        avg += s.x; mx = max(mx, s.y);
     }
-    avg /= 1024.0;
-    float2 lastStats = tex2D(samplerStatsPrev, 0.5).xy;
-    return float4(lerp(avg, lastStats.x, Smoothing_Speed), lerp(mx, lastStats.y, Smoothing_Speed), 0, 1);
+    float2 last = tex2D(sStatsPrev, 0.5).xy;
+    return float4(lerp(avg/1024.0, last.x, Smoothing_Speed), lerp(mx, last.y, Smoothing_Speed), 0, 1);
 }
 
-// =============================================================================
-// MAIN SHADER
-// =============================================================================
-
+// Pass 3: Main LumaBoost
 float4 PS_LumaBoost(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target {
-    float4 base = tex2D(ReShade::BackBuffer, uv);
-    
-    float2 stats = tex2D(samplerStatsCurr, 0.5).xy;
-    float trigger = saturate((stats.x - APL_Threshold) * Boost_Ramp);
+    const float4 base = tex2D(ReShade::BackBuffer, uv);
+    const float2 stats = tex2D(sStatsCurr, 0.5).xy;
+    const float trigger = saturate((stats.x - APL_Threshold) * Boost_Ramp);
 
-    float3 c = Decode(base.rgb);
+    float3 linearC = Decode(base.rgb);
+    const float oldY = dot(linearC, LUMA_COEFF);
+    const float linearPeak = Decode(float3(stats.y, stats.y, stats.y)).r;
 
-    // BT.2020 Luma Coefficients
-    float Y  = dot(c, float3(0.2627, 0.6780, 0.0593));
-    float Cb = dot(c, float3(-0.1396, -0.3604, 0.5));
-    float Cr = dot(c, float3(0.5, -0.4598, -0.0402));
-    
-    float linearPeak = Decode(float3(stats.y, stats.y, stats.y)).r;
-
+    // Skin Detection (Signal Space)
     float skinMask = 0.0;
+    float3 signalC = (BUFFER_COLOR_SPACE == 2) ? saturate(base.rgb / 125.0) : base.rgb;
+    
     if (Enable_Skin_Protect || Debug_Skin) {
-        float chroma = length(float2(Cb, Cr));
-        float hue = atan2(Cr, Cb);
+        float sigCb = dot(signalC, float3(-0.1396, -0.3604, 0.5));
+        float sigCr = dot(signalC, float3(0.5, -0.4598, -0.0402));
+        float hue = atan2(sigCr, sigCb);
         float d = abs(hue - Skin_Hue_Center); if (d > 3.14159) d = 6.28318 - d;
-        skinMask = saturate(1.0 - d / Skin_Sensitivity) * saturate(chroma * 10.0);
+        skinMask = saturate(1.0 - d / Skin_Sensitivity) * saturate(length(float2(sigCb, sigCr)) * 15.0);
     }
 
-    if (Y > 0.0001 && Y < linearPeak && trigger > 0.0) {
-        float normX = Y / linearPeak;
-        float hump = pow(normX, Shadow_Protect) * (1.0 - normX);
-        float finalBoost = Boost;
-        if (Enable_Skin_Protect) finalBoost *= (1.0 - (skinMask * Skin_Protect_Strength));
-        
-        float lift = finalBoost * trigger * hump * linearPeak;
-        float oldY = Y;
-        Y += lift;
+    float3 outColor = linearC;
 
+    if (oldY < linearPeak && trigger > 0.0) {
+        float pX = pow(max(oldY / max(linearPeak, 1e-6), 0.0), 0.45); 
+        float finalBoost = Boost * (1.0 - (skinMask * Skin_Protect_Strength * Enable_Skin_Protect));
+        
+        float lift = finalBoost * trigger * pow(pX, Shadow_Protect * 2.0) * (1.0 - pX) * linearPeak;
+        float newY = oldY + lift;
+
+        // RGB Ratio scaling (Hue-Stable)
+        float3 boostedC = linearC * (newY / max(oldY, 1e-6));
+
+        // Perceptual Saturation Recovery
         if (Enable_Sat_Recover) {
-            // UPDATED SATURATION RECOVERY
-            // Instead of 1:1 scaling, we use a perceptual multiplier (ratio ^ depth).
-            // This compensates for the Abney/Hunt effects in human vision.
-            float satRatio = Y / max(oldY, 0.0001);
-            float satFactor = pow(satRatio, 1.0 + Sat_Recover);
-            
-            Cb *= satFactor; 
-            Cr *= satFactor;
+            float satInt = (lift / max(linearPeak, 1e-6)) * Sat_Recover * 10.0;
+            outColor = lerp(float3(newY, newY, newY), boostedC, 1.0 + satInt);
+        } else {
+            outColor = boostedC;
         }
     }
-
-    float3 outColor;
-    outColor.r = Y + 1.4746 * Cr;
-    outColor.g = Y - 0.1645 * Cb - 0.5714 * Cr;
-    outColor.b = Y + 1.8814 * Cb;
 
     if (Debug_Skin) outColor = lerp(outColor, float3(0.01, 0, 0.01), skinMask);
 
@@ -214,9 +205,14 @@ float4 PS_LumaBoost(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target 
     return float4(Encode(outColor), base.a);
 }
 
+// Pass 4: Save Temporal State
 float4 PS_SaveStats(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target {
-    return tex2D(samplerStatsCurr, 0.5);
+    return tex2D(sStatsCurr, 0.5);
 }
+
+// =============================================================================
+// 6. PIPELINE DEFINITION
+// =============================================================================
 
 technique LumaBoost {
     pass { VertexShader = PostProcessVS; PixelShader = PS_CalcStats; RenderTarget = texStats; }
