@@ -4,15 +4,14 @@
 ================================================================================
     
     PURPOSE:
-    This shader emulates the high-end hardware logic found in premium gaming 
-    monitors. It is designed to fight "ABL dimming" on OLED panels by 
-    dynamically lifting midtones when the screen gets bright.
+    This shader emulates high-end hardware logic to fight OLED ABL dimming.
+    It dynamically lifts midtones while preserving peaks, blacks, and skin.
 
-    KEY FEATURES:
-    - Dynamic APL Trigger: Only activates when the screen passes a threshold.
-    - Format-Aware: Automatically adapts to SDR (sRGB), HDR10 (PQ), and scRGB.
-    - Protected Pipeline: Uses Hue-stable scaling and Skin/Shadow protection.
-    - Temporal Consistency: Glides brightness changes to eliminate flickering.
+    FEATURES:
+    - Format-Aware: Automatically adapts to SDR, HDR10 (PQ), and scRGB.
+    - Sky ABL Bias: Advanced protection for Blue/Cyan hues to keep APL low.
+    - Adaptive Saturation: Perceptual Color Volume protection.
+    - Temporal Smoothing: Cinematic transitions to eliminate flickering.
     - Gain-Based Heatmap: Visualizes the literal percentage of light added.
 ================================================================================
 */
@@ -41,117 +40,97 @@
 #endif
 
 // =============================================================================
-// 2. UI CONTROLS (Defaults Adjusted and Centered)
+// 2. UI CONTROLS (Defaults precisely centered on Sliders)
 // =============================================================================
 
 uniform int Info <
     ui_type = "radio"; ui_label = " "; ui_category = "0. System Info";
-    ui_text = "Detected Buffer Format: " CS_NAME;
-    ui_tooltip = "Detected color space. LumaBoost adjusts its internal math automatically.";
+    ui_text = "Detected Format: " CS_NAME;
 >;
 
 uniform float APL_Threshold <
-    ui_type = "slider"; ui_min = 0.0; ui_max = 0.5;
+    ui_type = "slider"; ui_min = 0.0; ui_max = 0.44;
     ui_category = "1. Main Boost Settings";
     ui_label = "APL Trigger Threshold";
-    ui_tooltip = "Brightness required to activate boost. (Default 0.25).";
-> = 0.25;
+    ui_tooltip = "Scene brightness required to trigger boost. Default: 0.22.";
+> = 0.22;
 
 uniform float Boost <
-    ui_type = "slider"; ui_min = 0.0; ui_max = 3.0;
+    ui_type = "slider"; ui_min = 0.0; ui_max = 3.6;
     ui_category = "1. Main Boost Settings";
     ui_label = "Max Boost Strength";
-    ui_tooltip = "Maximum intensity of the midtone lift. (Default 1.5).";
-> = 1.5;
+    ui_tooltip = "Intensity of the midtone lift. Default: 1.8.";
+> = 1.8;
 
 uniform float Boost_Ramp <
-    ui_type = "slider"; ui_min = 0.0; ui_max = 6.0;
+    ui_type = "slider"; ui_min = 0.0; ui_max = 8.0;
     ui_category = "1. Main Boost Settings";
     ui_label = "Boost Activation Sensitivity";
-    ui_tooltip = "How fast boost reaches full power once triggered. (Default 3.0).";
-> = 3.0;
+    ui_tooltip = "How fast boost reaches full power. Default: 4.0.";
+> = 4.0;
 
 uniform float Smoothing_Speed <
-    ui_type = "slider"; ui_min = 0.8; ui_max = 1.0;
+    ui_type = "slider"; ui_min = 0.7; ui_max = 1.0;
     ui_category = "1. Main Boost Settings";
     ui_label = "Temporal Smoothing";
-    ui_tooltip = "Smooths transitions to prevent flickering. (Default 0.90).";
-> = 0.90;
+    ui_tooltip = "Smooths brightness transitions. Default: 0.85.";
+> = 0.85;
 
 uniform float Shadow_Protect <
-    ui_type = "slider"; ui_min = 0.0; ui_max = 1.8;
+    ui_type = "slider"; ui_min = 0.0; ui_max = 2.04;
     ui_category = "1. Main Boost Settings";
     ui_label = "Shadow Protect";
-    ui_tooltip = "Keeps deep shadows and blacks dark. (Default 0.90).";
-> = 0.90;
+    ui_tooltip = "Keeps deep blacks dark. Default: 1.02.";
+> = 1.02;
 
 uniform float Highlight_Protect <
-    ui_type = "slider"; ui_min = 0.0; ui_max = 4.0;
+    ui_type = "slider"; ui_min = 0.0; ui_max = 5.0;
     ui_category = "1. Main Boost Settings";
     ui_label = "Highlight Protect";
-    ui_tooltip = "Protects bright areas like the sky from over-boosting. (Default 2.0).";
-> = 2.0;
+    ui_tooltip = "Protects bright areas like sky. Default: 2.5.";
+> = 2.5;
 
-uniform bool Enable_Sat_Recover < 
-    ui_category = "2. Color Correction"; 
-    ui_label = "Enable Saturation Recovery"; 
-    ui_tooltip = "Restores color depth in boosted areas to prevent washout.";
+uniform bool Enable_Sky_Bias <
+    ui_category = "1. Main Boost Settings";
+    ui_label = "Enable Sky ABL Bias";
+    ui_tooltip = "Applies extra protection to Blue/Cyan hues.";
 > = true;
+
+uniform float Sky_Bias <
+    ui_type = "slider"; ui_min = 0.0; ui_max = 20.0;
+    ui_category = "1. Main Boost Settings";
+    ui_label = "Sky Bias Strength";
+    ui_tooltip = "How hard to pinch the boost for blue skies. Default: 10.0.";
+> = 10.0;
+
+uniform bool Enable_Sat_Recover < ui_category = "2. Color Correction"; ui_label = "Enable Saturation Recovery"; > = true;
+uniform bool Enable_Adaptive_Sat < ui_category = "2. Color Correction"; ui_label = "Use Adaptive Scaling"; > = true;
 
 uniform float Sat_Recover < 
-    ui_type = "slider"; ui_min = 0.0; ui_max = 0.2; 
+    ui_type = "slider"; ui_min = 0.0; ui_max = 1.0; 
     ui_category = "2. Color Correction"; 
     ui_label = "Saturation Recovery Amount"; 
-    ui_tooltip = "Strength of saturation restoration. (Default 0.10).";
-> = 0.10;
-
-uniform bool Enable_Skin_Protect < 
-    ui_category = "3. Skin Protection"; 
-    ui_label = "Enable Skin Protection"; 
-    ui_tooltip = "Reduces boost on human skin to keep faces looking natural.";
-> = true;
-
-uniform float Skin_Protect_Strength < 
-    ui_type = "slider"; ui_min = 0.0; ui_max = 1.0; 
-    ui_category = "3. Skin Protection"; 
-    ui_label = "Protection Strength"; 
-    ui_tooltip = "Effectiveness of the skin mask. (Default 0.50).";
+    ui_tooltip = "Restores color depth in boosted areas. Default: 0.50.";
 > = 0.50;
 
-uniform float Skin_Hue_Center < 
-    ui_type = "slider"; ui_min = 1.36; ui_max = 3.14; 
-    ui_category = "3. Skin Protection"; 
-    ui_label = "Hue Center"; 
-    ui_tooltip = "The target color for skin. (Default 2.25).";
-> = 2.25;
+uniform float Sat_Threshold <
+    ui_type = "slider"; ui_min = 1.0; ui_max = 30.0;
+    ui_category = "2. Color Correction";
+    ui_label = "Adaptive Sat. Sensitivity";
+    ui_tooltip = "Aggressiveness of Color Volume protection. Default: 15.0.";
+> = 15.0;
 
-uniform float Skin_Sensitivity < 
-    ui_type = "slider"; ui_min = 0.0; ui_max = 0.5; 
-    ui_category = "3. Skin Protection"; 
-    ui_label = "Mask Width"; 
-    ui_tooltip = "Range of detected skin colors. (Default 0.25).";
-> = 0.25;
+uniform bool Enable_Skin_Protect < ui_category = "3. Skin Protection"; ui_label = "Enable Skin Protection"; > = true;
+uniform float Skin_Protect_Strength < ui_type = "slider"; ui_min = 0.0; ui_max = 1.0; ui_category = "3. Skin Protection"; ui_label = "Protection Strength"; > = 0.50;
+uniform float Skin_Hue_Center < ui_type = "slider"; ui_min = 1.36; ui_max = 3.14; ui_category = "3. Skin Protection"; ui_label = "Hue Center"; > = 2.25;
+uniform float Skin_Sensitivity < ui_type = "slider"; ui_min = 0.0; ui_max = 0.34; ui_category = "3. Skin Protection"; ui_label = "Mask Width"; > = 0.17;
 
-uniform bool Debug_Skin < 
-    ui_category = "4. Debug Tools"; 
-    ui_label = "DEBUG: Show Skin Mask"; 
-    ui_tooltip = "Turns skin purple to verify detection.";
-> = false;
-
-uniform bool Debug_Heatmap < 
-    ui_category = "4. Debug Tools"; 
-    ui_label = "DEBUG: Show Boost Heatmap"; 
-    ui_tooltip = "Visualizes relative gain. RED = Maximum Light Added, BLACK = Protected.";
-> = false;
-
-uniform bool Show_Debug < 
-    ui_category = "4. Debug Tools"; 
-    ui_label = "Show Visual Stats"; 
-    ui_tooltip = "TOP: Brightness (Green) vs Threshold (Red). MID: Peak (Blue). BOT: Boost (Orange).";
-> = false;
+uniform bool Debug_Skin < ui_category = "4. Debug Tools"; ui_label = "DEBUG: Show Skin Mask"; > = false;
+uniform bool Debug_Heatmap < ui_category = "4. Debug Tools"; ui_label = "DEBUG: Show Boost Heatmap"; > = false;
+uniform bool Show_Debug < ui_category = "4. Debug Tools"; ui_label = "Show Visual Stats"; > = false;
 
 // =============================================================================
-// 3. STORAGE
+// 3. STORAGE & COLOR ENGINE
 // =============================================================================
 
 texture texStats { Width = 32; Height = 32; Format = RGBA16F; };
@@ -161,14 +140,10 @@ sampler sStatsPrev { Texture = texStatsPrev; };
 texture texStatsCurr { Width = 1; Height = 1; Format = RGBA16F; };
 sampler sStatsCurr { Texture = texStatsCurr; };
 
-// =============================================================================
-// 4. COLOR ENGINE
-// =============================================================================
-
 float3 Decode(float3 c) {
 #if BUFFER_COLOR_SPACE == 3 
     float3 cp = pow(max(c, 0.0), 0.012683);
-    return pow(max(cp - 0.8359375, 0.0) / (18.85156 - 18.6875 * cp), 6.27739);
+    return pow(max((cp - 0.8359375) / (18.85156 - 18.6875 * cp), 0.0), 6.27739);
 #elif BUFFER_COLOR_SPACE == 2 
     return c / 125.0; 
 #else 
@@ -179,7 +154,7 @@ float3 Decode(float3 c) {
 float3 Encode(float3 c) {
 #if BUFFER_COLOR_SPACE == 3 
     float3 cp = pow(max(c, 0.0), 0.159301);
-    return pow((0.8359375 + 18.85156 * cp) / (1.0 + 18.6875 * cp), 78.84375);
+    return pow(max((0.8359375 + 18.85156 * cp) / (1.0 + 18.6875 * cp), 0.0), 78.84375);
 #elif BUFFER_COLOR_SPACE == 2 
     return c * 125.0; 
 #else 
@@ -188,7 +163,7 @@ float3 Encode(float3 c) {
 }
 
 // =============================================================================
-// 5. SHADER LOGIC
+// 4. SHADER PASSES
 // =============================================================================
 
 float4 PS_CalcStats(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target {
@@ -224,13 +199,23 @@ float4 PS_LumaBoost(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target 
     const float linearPeak = Decode(float3(stats.y, stats.y, stats.y)).r;
 
     float3 signalC = (BUFFER_COLOR_SPACE == 2) ? saturate(base.rgb / 125.0) : base.rgb;
+    float sigCb = dot(signalC, CHROMA_B);
+    float sigCr = dot(signalC, CHROMA_R);
+    float chroma = length(float2(sigCb, sigCr));
+    float hue = atan2(sigCr, sigCb);
+
+    // 1. Skin Mask
     float skinMask = 0.0;
     if (Enable_Skin_Protect || Debug_Skin) {
-        float sigCb = dot(signalC, CHROMA_B);
-        float sigCr = dot(signalC, CHROMA_R);
-        float hue = atan2(sigCr, sigCb);
         float d = abs(hue - Skin_Hue_Center); if (d > 3.14159) d = 6.28318 - d;
-        skinMask = saturate(1.0 - d / Skin_Sensitivity) * saturate(length(float2(sigCb, sigCr)) * 15.0);
+        skinMask = saturate(1.0 - d / max(Skin_Sensitivity, 0.01)) * saturate(chroma * 15.0);
+    }
+
+    // 2. Sky Mask (Targeting Blue/Cyan ~ -0.5 radians)
+    float skyMask = 0.0;
+    if (Enable_Sky_Bias) {
+        float skyDist = abs(hue - (-0.5)); if (skyDist > 3.14159) skyDist = 6.28318 - skyDist;
+        skyMask = saturate(1.0 - skyDist / 0.4) * saturate(chroma * 10.0);
     }
 
     float3 outColor = linearC;
@@ -238,7 +223,8 @@ float4 PS_LumaBoost(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target 
 
     if (oldY < linearPeak) {
         float pX = pow(max(oldY / max(linearPeak, 1e-6), 0.0), 0.45); 
-        float hump = pow(pX, Shadow_Protect * 2.0) * pow(1.0 - pX, Highlight_Protect * 2.0);
+        float dynHighlightProt = Highlight_Protect + (skyMask * Sky_Bias * Enable_Sky_Bias);
+        float hump = pow(max(pX, 0.0), Shadow_Protect * 2.0) * pow(max(1.0 - pX, 0.0), dynHighlightProt * 2.0);
         
         float finalBoost = Boost * (1.0 - (skinMask * Skin_Protect_Strength * Enable_Skin_Protect));
         float lift = finalBoost * trigger * hump * linearPeak;
@@ -249,6 +235,7 @@ float4 PS_LumaBoost(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target 
 
         if (Enable_Sat_Recover && trigger > 0.0) {
             float satInt = (lift / max(linearPeak, 1e-6)) * Sat_Recover * 10.0;
+            if (Enable_Adaptive_Sat) satInt *= saturate(1.0 - chroma * Sat_Threshold);
             outColor = lerp(float3(newY, newY, newY), boostedC, 1.0 + satInt);
         } else {
             outColor = boostedC;
@@ -263,7 +250,7 @@ float4 PS_LumaBoost(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target 
         heat = lerp(float3(0,0,0),       float3(0,0,0.01),    saturate(v * 5.0));
         heat = lerp(heat,                float3(0,0.01,0.01), saturate(v * 5.0 - 1.0));
         heat = lerp(heat,                float3(0,0.01,0),    saturate(v * 5.0 - 2.0));
-        heat = lerp(heat,                float3(0,0.01,0.01), saturate(v * 5.0 - 3.0));
+        heat = lerp(heat,                float3(0.01,0.01,0), saturate(v * 5.0 - 3.0));
         heat = lerp(heat,                float3(0.01,0,0),    saturate(v * 5.0 - 4.0));
         outColor = heat;
     }
@@ -285,7 +272,7 @@ float4 PS_SaveStats(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target 
 }
 
 // =============================================================================
-// 6. PIPELINE
+// 5. PIPELINE DEFINITION
 // =============================================================================
 
 technique LumaBoost {
