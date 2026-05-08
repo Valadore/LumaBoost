@@ -1,4 +1,5 @@
 LumaBoost is a high-performance ReShade shader designed specifically for OLED gamers. It emulates the internal hardware logic of premium displays to counteract the aggressive Auto Brightness Limiting (ABL) often found on OLED panels, restoring the intended punch and vibrancy of HDR content.
+
 Key Features
 
 Dynamic ABL Curve Modeling
