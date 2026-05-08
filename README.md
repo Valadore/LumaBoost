@@ -1,14 +1,32 @@
-# LumaBoost
-  
-  A ReShade shader that emulates hardware-level 
-  EOTF boosting (Midtone Lifting) found on newer OLED monitors.
-  
-  This shader dynamically compensates for ABL (Auto Brightness Limiting) 
-  by lifting midtones while strictly preserving peak highlights and blacks.
+LumaBoost v5.0 - Professional EOTF & Brightness Compensation
 
-Features:
-  - Dynamic APL Trigger: Boosts brightness only when the screen gets bright.
-  - Temporal Smoothing: Prevents flickering by gliding brightness changes.
-  - Shadow Protection: Preserves inky blacks and infinite contrast.
-  - Skin Tone Protection: Keeps character faces looking natural during boosts.
-  - Saturation Recovery: Prevents "washout" in boosted areas.
+LumaBoost is a high-performance ReShade shader designed specifically for OLED gamers. It emulates the internal hardware logic of premium displays to counteract the aggressive Auto Brightness Limiting (ABL) often found on OLED panels, restoring the intended punch and vibrancy of HDR content.
+Key Features
+
+    Dynamic ABL Curve Modeling: Uses measured monitor capability data points to calculate the exact inverse boost required to maintain brightness consistency.
+
+    Intelligent Protection Engine:
+
+        Black Anchor: Tracks the dynamic black point of each frame to ensure inky blacks remain untouched.
+
+        Skin Protection: Uses a specialized hue mask to prevent character faces from over-brightening.
+
+        Sky ABL Bias: Specifically targets blue/cyan sky tones to prevent them from triggering hardware dimming.
+
+    Color Volume Recovery: Employs perceptual saturation scaling (counteracting the Hunt Effect) to ensure that brightened midtones don't look washed out or foggy.
+
+    Signal-Space Contrast Recovery: Selectively restores micro-textures in boosted regions without introducing noise to the shadows.
+
+    Universal Format Support: Automatically detects and optimizes its mathematical pipeline for HDR10 (PQ), scRGB (Linear), and SDR (sRGB).
+
+    Temporal Smoothing: Cinematic transitions prevent brightness "pops" and flickering during rapid lighting changes.
+
+Installation & Usage
+
+    Place LumaBoost.fx in your reshade-shaders/Shaders folder.
+
+    Open the ReShade menu and search for "LumaBoost".
+
+    Mode Switching: To switch between Standard Mode and ABL Curve Mode, scroll to the bottom of the ReShade "Home" tab and edit the TRIGGER_MODE preprocessor definition.
+
+    Use DEBUG: Show Visual Stats to assist in calibrating your APL Threshold or verifying your Monitor Model's response.
