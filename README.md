@@ -1,6 +1,3 @@
-Here are the cleaned-up release notes for your GitHub repository. I have removed all tab indents to ensure the text remains as standard prose and doesn't accidentally trigger code block formatting.
-LumaBoost v1.0 - Professional EOTF & Brightness Compensation
-
 LumaBoost is a high-performance ReShade shader designed specifically for OLED gamers. It emulates the internal hardware logic of premium displays to counteract the aggressive Auto Brightness Limiting (ABL) often found on OLED panels, restoring the intended punch and vibrancy of HDR content.
 Key Features
 
